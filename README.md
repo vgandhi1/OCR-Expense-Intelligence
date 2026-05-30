@@ -1,68 +1,97 @@
-# OCR Expense Intelligence
+<div align="center">
 
-Upload a receipt image, get structured expense data back. This is a **FARM-stack**
-(FastAPI · React · MongoDB) application that uses AI-powered OCR to extract the
-merchant, date, total, and individual line items from receipt photos, classify
-the spend into categories, and visualize it on a dashboard.
+# 🧾 OCR Expense Intelligence
 
-It is the working MVP of a larger B2B document-intelligence vision (codename
-**Extracta AI**) — see [`docs/plan.md`](docs/plan.md) for the product north star
-and [`docs/IMPLEMENTATION_GAP.md`](docs/IMPLEMENTATION_GAP.md) for how the current
-code maps to it.
+### Snap a receipt → get structured expenses, itemized bills, and spending analytics.
 
----
+A **FARM-stack** (FastAPI · React · MongoDB) app that uses AI-powered OCR to read
+receipt photos, extract the merchant, date, total, and line items, categorize the
+spend, and visualize it on a dashboard.
 
-## Features
+<br/>
 
-- **AI OCR extraction** — merchant, date, and total are pulled from JPG/PNG
-  receipts using [EasyOCR](https://github.com/JaidedAI/EasyOCR), with a geometric
-  heuristic that finds the total by aligning the "TOTAL" label with the price on
-  the same line.
-- **Itemized bills** — line items (product + price) are extracted per receipt and
-  shown most-expensive-first, so you can see exactly which products cost the most.
-- **Automatic categorization** — keyword rules sort spend into Groceries, Dining,
-  Transport, Shopping, Utilities, Entertainment, Health, or Uncategorized.
-- **Edit & delete** — correct any field (merchant, total, date, category) inline,
-  and delete duplicate receipts.
-- **Analytics dashboard** — monthly spend and top-merchant charts (Recharts).
-- **Async by design** — upload returns a `job_id` immediately; a Celery worker
-  runs OCR off the request path while the UI polls job status.
-- **Multi-tenant** — an optional `X-Tenant-ID` header scopes every job, receipt,
-  and analytics query.
-- **Fully containerized** — one `docker compose up` brings up the whole stack.
+![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.128-009688?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
+![MongoDB](https://img.shields.io/badge/MongoDB-Motor-47A248?logo=mongodb&logoColor=white)
+![Celery](https://img.shields.io/badge/Celery-Redis-37814A?logo=celery&logoColor=white)
+![EasyOCR](https://img.shields.io/badge/OCR-EasyOCR%20%2B%20PyTorch-EE4C2C?logo=pytorch&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-53%20passing-brightgreen)
+![License](https://img.shields.io/badge/License-MIT-blue)
+
+</div>
+
+> 💡 This is the working MVP of a larger B2B document-intelligence vision
+> (codename **Extracta AI**). See [`docs/plan.md`](docs/plan.md) for the product
+> north star and [`docs/IMPLEMENTATION_GAP.md`](docs/IMPLEMENTATION_GAP.md) for how
+> today's code maps to it.
 
 ---
 
-## Tech stack
+## 📑 Table of contents
+
+- [Features](#-features)
+- [Tech stack](#️-tech-stack)
+- [Architecture](#-architecture)
+- [Quick start](#-quick-start-docker)
+- [API reference](#-api-reference)
+- [Local development & testing](#-local-development--testing)
+- [Configuration](#️-configuration)
+- [Project structure](#-project-structure)
+- [Documentation](#-documentation)
+- [Roadmap](#️-roadmap)
+- [License](#-license)
+
+---
+
+## ✨ Features
+
+| | Feature | What it does |
+|---|---------|--------------|
+| 🔍 | **AI OCR extraction** | Pulls merchant, date, and total from JPG/PNG receipts via [EasyOCR](https://github.com/JaidedAI/EasyOCR), aligning the "TOTAL" label with the price on the same line. |
+| 🧾 | **Itemized bills** | Extracts line items (product + price) and shows them **most-expensive-first**, so you see which products cost the most. |
+| 🏷️ | **Auto-categorization** | Sorts spend into Groceries, Dining, Transport, Shopping, Utilities, Entertainment, Health, or Uncategorized. |
+| ✏️ | **Edit & delete** | Fix any field (merchant, total, date, category) inline, and remove duplicate receipts. |
+| 📊 | **Analytics dashboard** | Monthly spend and top-merchant charts (Recharts). |
+| ⚡ | **Async by design** | Upload returns a `job_id` instantly; a Celery worker runs OCR off the request path while the UI polls. |
+| 🏢 | **Multi-tenant** | An optional `X-Tenant-ID` header scopes every job, receipt, and analytics query. |
+| 🐳 | **Containerized** | One `docker compose up` brings up the entire stack. |
+
+---
+
+## 🛠️ Tech stack
 
 | Layer | Technology |
 |-------|-----------|
-| Backend API | FastAPI, Uvicorn, Motor (async MongoDB) |
-| Worker | Celery + Redis broker, PyMongo, EasyOCR, PyTorch, Pillow |
-| Database | MongoDB (`receipts`, `jobs` collections) + Mongo-Express admin UI |
-| Frontend | React, Vite, TailwindCSS, Recharts, Axios |
-| Infra | Docker & Docker Compose |
+| **Backend API** | FastAPI · Uvicorn · Motor (async MongoDB) |
+| **Worker** | Celery + Redis broker · PyMongo · EasyOCR · PyTorch · Pillow |
+| **Database** | MongoDB (`receipts`, `jobs`) + Mongo-Express admin UI |
+| **Frontend** | React · Vite · TailwindCSS · Recharts · Axios |
+| **Infra** | Docker & Docker Compose |
 
-### Architecture
+---
+
+## 🏗 Architecture
 
 ```
                         ┌─────────────┐
-  Browser ──HTTP──▶ FastAPI (API) ──enqueue──▶ Redis ──▶ Celery worker
-                        │                                      │
-                        │                                  EasyOCR + parse
-                        ▼                                      ▼
-                     MongoDB  ◀──────────── writes receipt ────┘
-                     (jobs, receipts)
+  Browser ──HTTP──▶  FastAPI (API) ──enqueue──▶  Redis  ──▶  Celery worker
+                        │                                          │
+                        │                                    EasyOCR + parse
+                        ▼                                          ▼
+                     MongoDB  ◀────────────── writes receipt ──────┘
+                  (jobs, receipts)
 ```
 
-The API only authenticates, validates, stores, and enqueues — it never runs OCR.
+The API only **authenticates, validates, stores, and enqueues** — it never runs OCR.
 The worker does the heavy lifting and writes results back to MongoDB.
 
 ---
 
-## Quick start (Docker)
+## 🚀 Quick start (Docker)
 
-Prerequisites: Docker Desktop (or Docker Engine + Compose v2). On Windows, use WSL2.
+**Prerequisites:** Docker Desktop (or Docker Engine + Compose v2). On Windows, use WSL2.
 
 ```bash
 docker compose up --build
@@ -72,30 +101,26 @@ Then open:
 
 | Service | URL |
 |---------|-----|
-| Frontend dashboard | http://localhost:3000 |
-| API docs (Swagger) | http://localhost:8000/docs |
-| MongoDB admin (Mongo-Express) | http://localhost:8081 |
+| 🖥️ Frontend dashboard | http://localhost:3000 |
+| 📚 API docs (Swagger) | http://localhost:8000/docs |
+| 🗄️ MongoDB admin (Mongo-Express) | http://localhost:8081 |
 
-> **Port conflicts?** If `8000` or `3000` are already in use, start with the
-> included override to remap to `18000` / `13000` / `18081`:
+> ⚠️ **Port conflicts?** If `8000` or `3000` are taken, use the included override to
+> remap to `18000` / `13000` / `18081` (it also sets `VITE_API_URL` and `ALLOWED_ORIGINS`):
 >
 > ```bash
 > docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d
 > ```
->
-> The override also sets `VITE_API_URL` and `ALLOWED_ORIGINS` so the UI and CORS
-> point at the remapped ports.
 
-Try it: drop a receipt image (or one from `test_fixtures/`) onto the dashboard and
-watch it appear with extracted details. Click the list icon on a row to generate
-its itemized bill, the pencil to edit, or the trash to delete.
+**Try it:** drop a receipt image (or one from `test_fixtures/`) onto the dashboard.
+Use the 🔽 list icon on a row to generate its itemized bill, ✏️ to edit, or 🗑️ to delete.
 
 ---
 
-## API reference
+## 🔌 API reference
 
-Base URL: `http://localhost:8000`. All endpoints accept an optional
-`X-Tenant-ID` header (alphanumeric, `_`, `-`, max 64 chars; defaults to `default`).
+Base URL: `http://localhost:8000`. Every endpoint accepts an optional
+**`X-Tenant-ID`** header (alphanumeric, `_`, `-`, max 64 chars; defaults to `default`).
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -109,7 +134,8 @@ Base URL: `http://localhost:8000`. All endpoints accept an optional
 | `GET` | `/analytics/monthly` | Spend grouped by month |
 | `GET` | `/analytics/merchant` | Top 5 merchants by spend |
 
-### Example flow
+<details>
+<summary><b>📋 Example flow (click to expand)</b></summary>
 
 ```bash
 # 1. Upload a receipt
@@ -136,12 +162,14 @@ curl http://localhost:8000/analytics/monthly  -H "X-Tenant-ID: acme"
 curl http://localhost:8000/analytics/merchant -H "X-Tenant-ID: acme"
 ```
 
+</details>
+
 ---
 
-## Local development & testing
+## 🧪 Local development & testing
 
-The backend deps (including a Python `.venv`) install with pip. Use the virtualenv
-so the global interpreter (often PEP 668 "externally managed") doesn't get in the way.
+Use the project virtualenv so the global interpreter (often PEP 668
+"externally managed") doesn't get in the way.
 
 ```bash
 python3 -m venv .venv          # if one doesn't exist
@@ -149,35 +177,31 @@ source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
 ```
 
-### Generate sample receipts
-
-The repo ships a generator that renders deterministic, OCR-legible fixtures —
-no need to source your own images:
+**Generate sample receipts** — deterministic, OCR-legible fixtures, no need to
+source your own images:
 
 ```bash
 python test_fixtures/generate_fixtures.py
 # → test_fixtures/receipt_{walmart,starbucks,shell,blurry}.jpg
 ```
 
-### Run the test suite
-
-The suite runs without Docker, MongoDB, or Redis — it uses `mongomock-motor` for
-an in-memory database and stubs the Celery enqueue.
+**Run the test suite** — no Docker, MongoDB, or Redis needed (`mongomock-motor`
+provides an in-memory DB and the Celery enqueue is stubbed):
 
 ```bash
 pytest                                                   # fast unit + API tests
 RUN_OCR=1 pytest backend/tests/test_ocr_end_to_end.py    # real EasyOCR (downloads weights once)
 ```
 
-> The end-to-end OCR test writes model weights to `~/.EasyOCR`. If your home
-> directory isn't writable, point it elsewhere:
+> 🧠 The end-to-end OCR test writes model weights to `~/.EasyOCR`. If your home
+> directory isn't writable:
 > `EASYOCR_MODULE_PATH="$(pwd)/.easyocr_models" RUN_OCR=1 pytest ...`
 
 Tests cover tenant/path validation, OCR parsing & categorization, line-item
-extraction, the upload→job flow, receipt edit/delete/itemize, tenant isolation,
-and analytics aggregation.
+extraction, the upload→job flow, edit/delete/itemize, tenant isolation, and
+analytics aggregation.
 
-### Frontend (outside Docker)
+**Frontend (outside Docker):**
 
 ```bash
 cd frontend
@@ -185,27 +209,24 @@ npm install
 npm run dev        # Vite dev server on :5173
 ```
 
-Set `VITE_API_URL` to point the UI at a non-default API URL (defaults to
-`http://localhost:8000`).
-
 ---
 
-## Configuration
+## ⚙️ Configuration
 
-All configuration is via environment variables (Docker Compose supplies sensible
-defaults, so a `.env` is optional). See [`.env.example`](.env.example).
+All config is via environment variables (Docker Compose supplies sensible defaults,
+so a `.env` is optional). See [`.env.example`](.env.example).
 
 | Variable | Used by | Default | Purpose |
 |----------|---------|---------|---------|
 | `MONGODB_URL` | API, worker | `mongodb://mongo:27017` | MongoDB connection |
 | `REDIS_URL` | API, worker | `redis://redis:6379/0` | Celery broker + result backend |
-| `UPLOAD_ROOT` | API, worker | `/data/uploads` | Where raw uploads are stored (tenant/job namespaced) |
+| `UPLOAD_ROOT` | API, worker | `/data/uploads` | Raw upload storage (tenant/job namespaced) |
 | `ALLOWED_ORIGINS` | API | `http://localhost:3000,http://localhost:5173` | CORS allow-list (comma-separated) |
 | `VITE_API_URL` | frontend | `http://localhost:8000` | API base URL baked into the UI |
 
 ---
 
-## Project structure
+## 📂 Project structure
 
 ```
 .
@@ -227,9 +248,9 @@ defaults, so a `.env` is optional). See [`.env.example`](.env.example).
 ├── test_fixtures/
 │   └── generate_fixtures.py
 ├── docs/
-│   ├── plan.md             # Product & architecture vision (Extracta AI)
-│   ├── IMPLEMENTATION_GAP.md  # Current code vs. the plan
-│   └── PRODUCTION_DEPLOY.md   # Full production deployment guide
+│   ├── plan.md                # Product & architecture vision (Extracta AI)
+│   ├── IMPLEMENTATION_GAP.md   # Current code vs. the plan
+│   └── PRODUCTION_DEPLOY.md    # Full production deployment guide
 ├── docker-compose.yml
 ├── docker-compose.demo.yml # Host-port remap override (avoids 8000/3000 conflicts)
 ├── requirements.txt        # Runtime deps
@@ -239,15 +260,17 @@ defaults, so a `.env` is optional). See [`.env.example`](.env.example).
 
 ---
 
-## Documentation
+## 📚 Documentation
 
-- **[`docs/plan.md`](docs/plan.md)** — the product and architecture north star.
-- **[`docs/IMPLEMENTATION_GAP.md`](docs/IMPLEMENTATION_GAP.md)** — what's built vs. planned, with a suggested completion order.
-- **[`docs/PRODUCTION_DEPLOY.md`](docs/PRODUCTION_DEPLOY.md)** — end-to-end production deployment (hosting, CI/CD, domain, SSL, monitoring, cost).
+| Doc | What's inside |
+|-----|---------------|
+| 📘 [`docs/plan.md`](docs/plan.md) | The product and architecture north star |
+| 📙 [`docs/IMPLEMENTATION_GAP.md`](docs/IMPLEMENTATION_GAP.md) | What's built vs. planned, with a suggested completion order |
+| 📗 [`docs/PRODUCTION_DEPLOY.md`](docs/PRODUCTION_DEPLOY.md) | End-to-end production deploy (hosting, CI/CD, domain, SSL, monitoring, cost) |
 
 ---
 
-## Roadmap (high level)
+## 🗺️ Roadmap
 
 The current MVP covers async OCR, itemized extraction, categorization, receipt
 management, and basic analytics. Larger planned work — API keys & rate limiting,
@@ -257,6 +280,10 @@ webhooks, and a `line_items` analytics collection — is tracked in
 
 ---
 
-## License
+## 📄 License
 
-MIT.
+Released under the **MIT License**.
+
+<div align="center">
+<sub>Built with FastAPI, React, MongoDB, and EasyOCR.</sub>
+</div>
