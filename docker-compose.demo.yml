@@ -1,0 +1,19 @@
+# Demo-only host port remap. Use when ports 8000/3000/8081 are taken by another
+# service on this host:
+#   docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d
+services:
+  backend:
+    ports:
+      - "18000:8000"
+    environment:
+      # Allow the remapped frontend origin through CORS.
+      - ALLOWED_ORIGINS=http://localhost:13000,http://localhost:3000,http://localhost:5173
+  frontend:
+    ports:
+      - "13000:5173"
+    environment:
+      # Point the browser UI at the remapped backend host port.
+      - VITE_API_URL=http://localhost:18000
+  mongo-express:
+    ports:
+      - "18081:8081"

@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+motor
+pydantic
+python-multipart
+easyocr
+pillow
+numpy
+pandas
+python-dotenv
+celery[redis]
+redis
+pymongo
