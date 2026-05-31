@@ -65,14 +65,36 @@ def process_receipt_job(self, job_id: str) -> None:
 
     try:
         import ocr_engine
+        from line_items_writer import write_line_items
+        from pdf_converter import load_image
+        from preprocess import preprocess_receipt
 
-        with open(path, "rb") as f:
-            contents = f.read()
-        ocr_result = ocr_engine.extract_text_and_coords(contents)
+        # Load (rasterising PDFs), pre-process for OCR quality, then extract.
+        pil_image, pages = load_image(path)
+        pil_image = preprocess_receipt(pil_image)
+        ocr_result = ocr_engine.extract_text_and_coords_from_image(pil_image)
         parsed = ocr_engine.parse_receipt(ocr_result)
         parsed["tenant_id"] = tenant_id
+        parsed["job_id"] = jid
+        parsed.setdefault("currency", "USD")
+        confidence = parsed.get("confidence")
+        # Wrap in bool(): comparing a numpy float yields numpy.bool_, which PyMongo
+        # cannot BSON-encode and would fail the insert below.
+        parsed["needs_review"] = bool(confidence is not None and confidence < 0.75)
         parsed["created_at"] = datetime.now(timezone.utc)
+
+        items = parsed.get("items", [])
         ins = receipts.insert_one(parsed)
+        parsed["_id"] = ins.inserted_id
+
+        # Fan the parsed line items out into their own collection so analytics can
+        # aggregate at item granularity. Non-fatal: a receipt is still useful even
+        # if item fan-out fails, so we never fail the whole job on this.
+        try:
+            write_line_items(db, parsed, items, tenant_id)
+        except Exception:
+            logger.exception("line_items write failed job_id=%s", job_id)
+
         elapsed_ms = int((time.perf_counter() - start) * 1000)
         jobs.update_one(
             {"_id": jid},
@@ -82,6 +104,8 @@ def process_receipt_job(self, job_id: str) -> None:
                     "receipt_id": ins.inserted_id,
                     "completed_at": datetime.now(timezone.utc),
                     "processing_ms": elapsed_ms,
+                    "confidence": confidence,
+                    "pages": pages,
                     "error_message": None,
                 }
             },

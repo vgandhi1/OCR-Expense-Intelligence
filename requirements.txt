@@ -4,10 +4,14 @@ motor
 pydantic
 python-multipart
 easyocr
+opencv-python-headless
+pdf2image
 pillow
 numpy
+rapidfuzz
 pandas
 python-dotenv
 celery[redis]
 redis
+slowapi
 pymongo

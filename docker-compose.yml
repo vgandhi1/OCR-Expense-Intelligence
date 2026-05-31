@@ -17,6 +17,18 @@ services:
       - MONGODB_URL=mongodb://mongo:27017
       - REDIS_URL=redis://redis:6379/0
       - UPLOAD_ROOT=/data/uploads
+      - ADMIN_KEY=${ADMIN_KEY:-dev-admin-key}
+      - REQUIRE_API_KEY=${REQUIRE_API_KEY:-0}
+      # Share rate-limit counters across API replicas via Redis (db 1, separate from Celery).
+      - RATELIMIT_STORAGE_URI=redis://redis:6379/1
+    # Probe readiness (Mongo + Redis reachable). python urllib avoids needing curl
+    # in the slim image; start_period covers first-boot model/dependency warmup.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready').read()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     depends_on:
       - mongo
       - redis

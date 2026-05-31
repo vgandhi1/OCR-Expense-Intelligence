@@ -5,13 +5,22 @@ import { Upload as UploadIcon, Loader2, CheckCircle, XCircle } from 'lucide-reac
 const POLL_MS = 600;
 const POLL_MAX_ATTEMPTS = 120;
 
+const ACCEPT = 'image/*,application/pdf,.pdf';
+const MAX_FILE_BYTES = 15 * 1024 * 1024; // 15 MB
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const isSupported = (file) =>
+    file.type.startsWith('image/') ||
+    file.type === 'application/pdf' ||
+    /\.pdf$/i.test(file.name);
 
 const Upload = ({ onUploadSuccess }) => {
     const [dragActive, setDragActive] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [success, setSuccess] = useState(false);
+    const [fileName, setFileName] = useState(null);
 
     const handleDrag = (e) => {
         e.preventDefault();
@@ -37,6 +46,8 @@ const Upload = ({ onUploadSuccess }) => {
         if (e.target.files && e.target.files[0]) {
             handleFile(e.target.files[0]);
         }
+        // Reset so selecting the same file again still fires onChange.
+        e.target.value = '';
     };
 
     const pollJob = async (jobId) => {
@@ -54,9 +65,20 @@ const Upload = ({ onUploadSuccess }) => {
     };
 
     const handleFile = async (file) => {
-        setLoading(true);
         setError(null);
         setSuccess(false);
+        setFileName(file.name);
+
+        if (!isSupported(file)) {
+            setError('Unsupported file type. Upload an image (JPG, PNG) or a PDF.');
+            return;
+        }
+        if (file.size > MAX_FILE_BYTES) {
+            setError('File is too large. Maximum size is 15 MB.');
+            return;
+        }
+
+        setLoading(true);
 
         const formData = new FormData();
         formData.append("file", file);
@@ -87,11 +109,11 @@ const Upload = ({ onUploadSuccess }) => {
     };
 
     return (
-        <div className="w-full max-w-md mx-auto mb-8">
+        <div className="w-full">
             <form
-                className={`relative p-8 border-2 border-dashed rounded-lg text-center transition-colors 
-                    ${dragActive ? "border-blue-500 bg-blue-50" : "border-gray-300 bg-white"}
-                    ${loading ? "opacity-50 pointer-events-none" : ""}
+                className={`relative flex items-center gap-4 px-6 py-5 border-2 border-dashed rounded-xl transition-colors cursor-pointer
+                    ${dragActive ? "border-blue-500 bg-blue-50" : "border-gray-300 bg-white hover:border-gray-400"}
+                    ${loading ? "opacity-60 pointer-events-none" : ""}
                 `}
                 onDragEnter={handleDrag}
                 onDragLeave={handleDrag}
@@ -103,40 +125,52 @@ const Upload = ({ onUploadSuccess }) => {
                     type="file"
                     id="file-upload"
                     className="hidden"
-                    accept="image/*"
+                    accept={ACCEPT}
                     onChange={handleChange}
                 />
 
-                <div className="flex flex-col items-center justify-center space-y-4">
+                <div className="shrink-0">
                     {loading ? (
-                        <Loader2 className="w-12 h-12 text-blue-500 animate-spin" />
+                        <Loader2 className="w-9 h-9 text-blue-500 animate-spin" />
                     ) : success ? (
-                        <CheckCircle className="w-12 h-12 text-green-500" />
+                        <CheckCircle className="w-9 h-9 text-green-500" />
                     ) : (
-                        <UploadIcon className="w-12 h-12 text-gray-400" />
+                        <UploadIcon className="w-9 h-9 text-gray-400" />
                     )}
-
-                    <div>
-                        {loading ? (
-                            <p className="text-lg font-medium text-gray-700">Processing receipt…</p>
-                        ) : success ? (
-                            <p className="text-lg font-medium text-green-600">Upload Successful!</p>
-                        ) : (
-                            <>
-                                <p className="text-lg font-medium text-gray-700">
-                                    Drop receipt image here
-                                </p>
-                                <p className="text-sm text-gray-500 mt-1">
-                                    or click to select
-                                </p>
-                            </>
-                        )}
-                    </div>
                 </div>
+
+                <div className="flex-1 min-w-0 text-left">
+                    {loading ? (
+                        <>
+                            <p className="text-base font-medium text-gray-700">Processing receipt…</p>
+                            {fileName && (
+                                <p className="text-sm text-gray-500 truncate">{fileName}</p>
+                            )}
+                        </>
+                    ) : success ? (
+                        <>
+                            <p className="text-base font-medium text-green-600">Upload successful!</p>
+                            <p className="text-sm text-gray-500">Drop or click to upload another</p>
+                        </>
+                    ) : (
+                        <>
+                            <p className="text-base font-medium text-gray-700">
+                                Drop a receipt here, or click to browse
+                            </p>
+                            <p className="text-sm text-gray-500">
+                                Supports JPG, PNG or PDF &middot; up to 15 MB
+                            </p>
+                        </>
+                    )}
+                </div>
+
+                <span className="hidden sm:inline-flex shrink-0 items-center px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-medium">
+                    Select file
+                </span>
             </form>
             {error && (
-                <div className="mt-4 p-4 bg-red-50 text-red-600 rounded-md flex items-center">
-                    <XCircle className="w-5 h-5 mr-2" />
+                <div className="mt-3 p-3 bg-red-50 text-red-600 rounded-lg flex items-center text-sm">
+                    <XCircle className="w-5 h-5 mr-2 shrink-0" />
                     {error}
                 </div>
             )}

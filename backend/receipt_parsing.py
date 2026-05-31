@@ -6,7 +6,7 @@ bounding-box based logic stays in ocr_engine.py.
 """
 
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 # Lines whose description matches these are receipt totals/metadata, not products.
 _NON_ITEM_KEYWORDS = (
@@ -16,9 +16,16 @@ _NON_ITEM_KEYWORDS = (
     "auth", "approval", "account", "ref", "invoice", "receipt", "order",
 )
 
+# OCR frequently mangles these metadata labels (e.g. "Tota] ;" -> "tota"), so a
+# short alphabetic prefix of one of these is also treated as a non-product line.
+_NON_ITEM_PREFIXES = ("total", "subtotal", "balance")
+
 # A line that is *only* a price, e.g. "3.49", "$5.25", "8 . 98", "1,50".
 _PRICE_ONLY_RE = re.compile(r"^\$?\s*\d{1,5}\.\d{2}$")
 _DATE_RE = re.compile(r"\d{1,2}[/-]\d{1,2}[/-]\d{2,4}")
+
+# Tolerance (in currency units) when comparing an item amount to the receipt total.
+_TOTAL_TOLERANCE = 0.011
 
 
 def _price_from_line(line: str):
@@ -39,19 +46,59 @@ def _is_item_description(text: str) -> bool:
         return False
     if any(kw in low for kw in _NON_ITEM_KEYWORDS):
         return False
-    if not re.search(r"[a-zA-Z]", text):  # must contain letters (skip pure ids)
+    letters = re.sub(r"[^a-z]", "", low)
+    if len(letters) < 2:  # skip single-char / pure-id garbage like "F" or "lb."
+        return False
+    # Catch OCR-mangled metadata labels: "tota" is a prefix of "total", etc.
+    # Require >=4 letters so real short items (e.g. "Sub") aren't dropped.
+    if len(letters) >= 4 and any(kw.startswith(letters) for kw in _NON_ITEM_PREFIXES):
         return False
     if _DATE_RE.search(text):
         return False
     return True
 
 
-def find_line_items(text: str) -> List[Dict[str, Any]]:
+def _filter_against_total(
+    items: List[Dict[str, Any]], total: Optional[float]
+) -> List[Dict[str, Any]]:
+    """Drop pseudo-items that are really the receipt total.
+
+    A genuine single line item can never exceed the grand total, and when other
+    items are present it can't *equal* it either (the total is their sum plus
+    tax). Such rows are almost always the total/subtotal line leaking through
+    OCR noise, so we discard them — otherwise they'd be flagged "most expensive".
+    """
+    if not items or total is None:
+        return items
+    try:
+        total_val = float(total)
+    except (TypeError, ValueError):
+        return items
+    if total_val <= 0:
+        return items
+
+    multi = len(items) > 1
+    kept: List[Dict[str, Any]] = []
+    for item in items:
+        amount = item.get("amount")
+        if amount is None:
+            kept.append(item)
+            continue
+        if amount > total_val + _TOTAL_TOLERANCE:
+            continue  # impossible for a real product line
+        if multi and abs(amount - total_val) <= _TOTAL_TOLERANCE:
+            continue  # the grand total leaking in among real items
+        kept.append(item)
+    return kept
+
+
+def find_line_items(text: str, total: Optional[float] = None) -> List[Dict[str, Any]]:
     """Pair descriptive lines with the price line that follows them.
 
     OCR emits text top-to-bottom, so a product label is typically immediately
     followed by its price on the next line. Total/tax/metadata lines are
-    filtered out so only purchasable products remain.
+    filtered out so only purchasable products remain. When the receipt ``total``
+    is known, items at/above it are dropped as leaked totals.
     """
     lines = [ln.strip() for ln in (text or "").split("\n") if ln.strip()]
     items: List[Dict[str, Any]] = []
@@ -66,4 +113,4 @@ def find_line_items(text: str) -> List[Dict[str, Any]]:
         else:
             pending = line
 
-    return items
+    return _filter_against_total(items, total)

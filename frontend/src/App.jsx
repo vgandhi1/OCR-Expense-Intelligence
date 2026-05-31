@@ -12,8 +12,8 @@ function App() {
     };
 
     return (
-        <div className="min-h-screen bg-gray-100 py-12 px-4 sm:px-6 lg:px-8">
-            <div className="max-w-5xl mx-auto space-y-8">
+        <div className="min-h-screen bg-gray-100 py-10 px-4 sm:px-6 lg:px-8">
+            <div className="max-w-7xl mx-auto space-y-8">
                 <div className="text-center">
                     <h1 className="text-3xl font-bold text-gray-900">OCR Expense Intelligence</h1>
                     <p className="mt-2 text-gray-600">Upload receipts to track your spending automatically</p>
@@ -21,14 +21,10 @@ function App() {
 
                 <Dashboard refreshTrigger={refreshKey} />
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                    <div className="md:col-span-1">
-                        <Upload onUploadSuccess={handleUploadSuccess} />
-                    </div>
-                    <div className="md:col-span-2">
-                        <ReceiptsList refreshTrigger={refreshKey} onChange={handleUploadSuccess} />
-                    </div>
-                </div>
+                {/* Compact full-width uploader, then the receipts table gets the entire width. */}
+                <Upload onUploadSuccess={handleUploadSuccess} />
+
+                <ReceiptsList refreshTrigger={refreshKey} onChange={handleUploadSuccess} />
             </div>
         </div>
     )

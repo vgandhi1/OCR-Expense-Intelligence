@@ -1,8 +1,9 @@
 import logging
 import easyocr
+import numbers
 import re
 from datetime import datetime
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Optional, Tuple
 import numpy as np
 from PIL import Image
 import io
@@ -20,7 +21,9 @@ _reader = None
 def get_reader() -> "easyocr.Reader":
     global _reader
     if _reader is None:
-        _reader = easyocr.Reader(['en'])
+        # gpu=False: deployment is CPU-only (no CUDA in the containers). This skips
+        # EasyOCR's GPU probe and the "Using CPU" warning on every worker boot.
+        _reader = easyocr.Reader(['en'], gpu=False)
     return _reader
 
 def extract_text_and_coords(image_bytes: bytes) -> List[Tuple[List[List[int]], str, float]]:
@@ -29,6 +32,14 @@ def extract_text_and_coords(image_bytes: bytes) -> List[Tuple[List[List[int]], s
     bbox = [[x1, y1], [x2, y2], [x3, y3], [x4, y4]]
     """
     image = Image.open(io.BytesIO(image_bytes))
+    return extract_text_and_coords_from_image(image)
+
+
+def extract_text_and_coords_from_image(
+    image: "Image.Image",
+) -> List[Tuple[List[List[int]], str, float]]:
+    """OCR a PIL image. Lets the worker pre-process (deskew/denoise) and convert
+    PDFs to images before extraction without re-encoding to bytes."""
     image_np = np.array(image)
     # detail=1 gives extracted text with bounding box and confidence
     result = get_reader().readtext(image_np, detail=1)
@@ -72,14 +83,49 @@ def parse_receipt(ocr_result: List[Tuple[List[List[int]], str, float]]) -> Dict[
     data['category'] = classify_receipt(data.get('merchant_name', ''), lower_text)
 
     data["raw_text"] = full_text
-    data["items"] = find_line_items(full_text)
+    data["items"] = find_line_items(full_text, data.get("total_amount"))
+    data["confidence"] = extract_confidence(ocr_result)
+    data["currency"] = detect_currency(full_text)
     logger.debug(
-        "Parsed receipt fields: merchant_set=%s total_set=%s date_set=%s",
+        "Parsed receipt fields: merchant_set=%s total_set=%s date_set=%s conf=%s",
         bool(data.get("merchant_name")),
         data.get("total_amount") is not None,
         bool(data.get("date")),
+        data.get("confidence"),
     )
     return data
+
+
+# Map a currency symbol seen in OCR text to an ISO 4217 code. First match wins.
+_CURRENCY_BY_SYMBOL = (
+    ("$", "USD"),
+    ("€", "EUR"),
+    ("£", "GBP"),
+    ("¥", "JPY"),
+    ("₹", "INR"),
+)
+
+
+def extract_confidence(
+    ocr_result: List[Tuple[List[List[int]], str, float]]
+) -> Optional[float]:
+    """Mean of per-token EasyOCR probabilities; None when nothing was read."""
+    # Use numbers.Real so numpy float32/float64 (not subclasses of `float`) are
+    # included rather than silently dropped.
+    probs = [p for _, _, p in ocr_result if isinstance(p, numbers.Real)]
+    if not probs:
+        return None
+    # Cast to a native float: EasyOCR probs are numpy scalars, and numpy types
+    # (incl. the numpy.bool_ from comparisons) are not BSON-encodable by PyMongo.
+    return round(float(sum(probs) / len(probs)), 4)
+
+
+def detect_currency(text: str) -> str:
+    """Best-effort currency detection from symbols in the OCR text. Defaults to USD."""
+    for symbol, code in _CURRENCY_BY_SYMBOL:
+        if symbol in text:
+            return code
+    return "USD"
 
 def find_total_geometric(ocr_result: List[Tuple[List[List[int]], str, float]]) -> float:
     """

@@ -5,6 +5,8 @@ require EasyOCR model weights. The full image->text path is covered separately
 by the (opt-in) test in test_ocr_end_to_end.py.
 """
 
+import pytest
+
 import ocr_engine
 
 
@@ -52,3 +54,39 @@ def test_parse_receipt_extracts_fields():
     assert parsed["category"] == "Groceries"
     assert "WALMART" in parsed["raw_text"]
     assert parsed["items"] == []
+    assert parsed["confidence"] == pytest.approx(0.9125)
+    assert parsed["currency"] == "USD"
+
+
+def test_extract_confidence_averages_token_probs():
+    ocr_result = [
+        (_box(0, 0, 1, 1), "A", 0.8),
+        (_box(0, 0, 1, 1), "B", 1.0),
+    ]
+    assert ocr_engine.extract_confidence(ocr_result) == pytest.approx(0.9)
+
+
+def test_extract_confidence_none_when_empty():
+    assert ocr_engine.extract_confidence([]) is None
+
+
+def test_extract_confidence_returns_native_float_for_numpy_probs():
+    # EasyOCR emits numpy.float32/64 probabilities. The result must be a native
+    # Python float so PyMongo can BSON-encode it (numpy scalars cannot be encoded,
+    # and `numpy_float < threshold` yields a non-encodable numpy.bool_).
+    import numpy as np
+
+    ocr_result = [
+        (_box(0, 0, 1, 1), "A", np.float64(0.8)),
+        (_box(0, 0, 1, 1), "B", np.float32(1.0)),
+    ]
+    conf = ocr_engine.extract_confidence(ocr_result)
+    assert conf == pytest.approx(0.9)
+    assert type(conf) is float
+
+
+def test_detect_currency_from_symbol():
+    assert ocr_engine.detect_currency("TOTAL £12.50") == "GBP"
+    assert ocr_engine.detect_currency("TOTAL €9,99") == "EUR"
+    assert ocr_engine.detect_currency("TOTAL ¥1200") == "JPY"
+    assert ocr_engine.detect_currency("TOTAL 12.50") == "USD"  # default

@@ -58,7 +58,21 @@ async def test_upload_rejects_non_image(client):
         files={"file": ("note.txt", b"hello", "text/plain")},
     )
     assert resp.status_code == 400
-    assert resp.json()["detail"] == "File must be an image"
+    assert resp.json()["detail"] == "File must be an image or PDF"
+
+
+async def test_upload_accepts_pdf(client, fake_collections, stub_enqueue):
+    resp = await client.post(
+        "/receipts/upload",
+        files={"file": ("invoice.pdf", b"%PDF-1.4 minimal", "application/pdf")},
+        headers={"X-Tenant-ID": "acme"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "queued"
+    assert stub_enqueue  # a job was enqueued for the PDF
+    doc = await fake_collections["jobs"].find_one({"tenant_id": "acme"})
+    assert doc["content_type"] == "application/pdf"
+    assert doc["raw_storage_path"].endswith(".pdf")
 
 
 async def test_upload_enqueues_job(client, fake_collections, stub_enqueue):
@@ -241,3 +255,42 @@ async def test_itemize_tenant_isolation(client, fake_collections):
         f"/receipts/{rid}/itemize", headers={"X-Tenant-ID": "tenant-b"}
     )
     assert resp.status_code == 404
+
+
+async def test_itemize_backfills_line_items(client, fake_collections):
+    rid = await _seed_receipt(fake_collections["receipts"], raw_text=_WALMART_RAW)
+    await client.post(f"/receipts/{rid}/itemize")
+
+    stored = await fake_collections["line_items"].find(
+        {"receipt_id": ObjectId(rid)}
+    ).to_list(length=None)
+    assert {(s["description"], s["amount"]) for s in stored} == {
+        ("Eggs", 3.49),
+        ("Milk", 2.99),
+        ("Bread", 2.50),
+    }
+
+
+async def test_itemize_is_idempotent(client, fake_collections):
+    rid = await _seed_receipt(fake_collections["receipts"], raw_text=_WALMART_RAW)
+    await client.post(f"/receipts/{rid}/itemize")
+    await client.post(f"/receipts/{rid}/itemize")
+
+    count = await fake_collections["line_items"].count_documents(
+        {"receipt_id": ObjectId(rid)}
+    )
+    assert count == 3  # not duplicated on re-run
+
+
+async def test_delete_receipt_cascades_line_items(client, fake_collections):
+    rid = await _seed_receipt(fake_collections["receipts"], raw_text=_WALMART_RAW)
+    await client.post(f"/receipts/{rid}/itemize")
+    assert await fake_collections["line_items"].count_documents(
+        {"receipt_id": ObjectId(rid)}
+    ) == 3
+
+    resp = await client.delete(f"/receipts/{rid}")
+    assert resp.status_code == 204
+    assert await fake_collections["line_items"].count_documents(
+        {"receipt_id": ObjectId(rid)}
+    ) == 0

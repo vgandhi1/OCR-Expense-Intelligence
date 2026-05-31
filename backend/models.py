@@ -10,6 +10,8 @@ class Item(BaseModel):
     description: str
     amount: float
     qty: Optional[int] = 1
+    unit_price: Optional[float] = None
+    confidence: Optional[float] = None
 
 
 class ReceiptBase(BaseModel):
@@ -26,10 +28,14 @@ class ReceiptCreate(ReceiptBase):
 
 class Receipt(ReceiptBase):
     id: Optional[PyObjectId] = Field(alias="_id", default=None)
+    job_id: Optional[PyObjectId] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = None
     raw_text: Optional[str] = None
     category: Optional[str] = "Uncategorized"
+    currency: Optional[str] = "USD"
+    confidence: Optional[float] = None
+    needs_review: bool = False
 
     class Config:
         populate_by_name = True

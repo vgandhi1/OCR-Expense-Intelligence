@@ -4,17 +4,20 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from bson import ObjectId
-from fastapi import APIRouter, UploadFile, File, HTTPException, Header, Response
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Request, Response
 from pymongo import ReturnDocument
 
 import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from database import collection_receipts, collection_jobs
+from auth import get_tenant_id
+from rate_limit import limiter
+from database import collection_receipts, collection_jobs, collection_line_items
+from line_items_writer import write_line_items_async
 from models import Receipt, ReceiptUpdate, JobEnqueueResponse, JobStatusResponse
 from receipt_parsing import find_line_items
-from storage_paths import validate_tenant_id, save_job_upload
+from storage_paths import save_job_upload
 from tasks import process_receipt_job
 
 logger = logging.getLogger(__name__)
@@ -29,8 +32,14 @@ def _suffix_for_content_type(content_type: str) -> str:
         "image/png": ".png",
         "image/webp": ".webp",
         "image/gif": ".gif",
+        "application/pdf": ".pdf",
     }
     return mapping.get(content_type.split(";")[0].strip().lower(), ".bin")
+
+
+def _is_supported_upload(content_type: Optional[str]) -> bool:
+    ctype = (content_type or "").split(";")[0].strip().lower()
+    return ctype.startswith("image/") or ctype == "application/pdf"
 
 
 def _tenant_query_filter(tenant_id: str) -> dict:
@@ -39,23 +48,16 @@ def _tenant_query_filter(tenant_id: str) -> dict:
     return {"tenant_id": tenant_id}
 
 
-def _parse_tenant_header(x_tenant_id: Optional[str]) -> str:
-    raw = (x_tenant_id or "default").strip()
-    try:
-        return validate_tenant_id(raw)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid tenant id")
-
-
 @router.post("/upload", response_model=JobEnqueueResponse)
+@limiter.limit("20/minute")
 async def upload_receipt(
+    request: Request,
     file: UploadFile = File(...),
-    x_tenant_id: Optional[str] = Header(default=None, alias="X-Tenant-ID"),
+    tenant_id: str = Depends(get_tenant_id),
 ):
-    if not file.content_type or not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="File must be an image")
+    if not _is_supported_upload(file.content_type):
+        raise HTTPException(status_code=400, detail="File must be an image or PDF")
 
-    tenant_id = _parse_tenant_header(x_tenant_id)
     contents = await file.read()
     if len(contents) > 15 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="File too large")
@@ -82,6 +84,9 @@ async def upload_receipt(
         "content_type": file.content_type,
         "receipt_id": None,
         "error_message": None,
+        "model_used": "easyocr",
+        "pages": 1,
+        "confidence": None,
         "processing_ms": None,
         "created_at": now,
         "updated_at": now,
@@ -108,11 +113,12 @@ async def upload_receipt(
 
 
 @router.get("/jobs/{job_id}", response_model=JobStatusResponse)
+@limiter.limit("120/minute")
 async def get_job_status(
+    request: Request,
     job_id: str,
-    x_tenant_id: Optional[str] = Header(default=None, alias="X-Tenant-ID"),
+    tenant_id: str = Depends(get_tenant_id),
 ):
-    tenant_id = _parse_tenant_header(x_tenant_id)
     try:
         oid = ObjectId(job_id)
     except Exception:
@@ -137,9 +143,8 @@ async def get_job_status(
 
 @router.get("/", response_model=List[Receipt])
 async def get_receipts(
-    x_tenant_id: Optional[str] = Header(default=None, alias="X-Tenant-ID"),
+    tenant_id: str = Depends(get_tenant_id),
 ):
-    tenant_id = _parse_tenant_header(x_tenant_id)
     receipts: List[Receipt] = []
     cursor = collection_receipts.find(_tenant_query_filter(tenant_id)).sort(
         "created_at", -1
@@ -163,9 +168,8 @@ def _receipt_object_id(receipt_id: str) -> ObjectId:
 async def update_receipt(
     receipt_id: str,
     payload: ReceiptUpdate,
-    x_tenant_id: Optional[str] = Header(default=None, alias="X-Tenant-ID"),
+    tenant_id: str = Depends(get_tenant_id),
 ):
-    tenant_id = _parse_tenant_header(x_tenant_id)
     oid = _receipt_object_id(receipt_id)
 
     update_fields = payload.model_dump(exclude_unset=True)
@@ -191,10 +195,9 @@ async def update_receipt(
 @router.post("/{receipt_id}/itemize", response_model=Receipt)
 async def itemize_receipt(
     receipt_id: str,
-    x_tenant_id: Optional[str] = Header(default=None, alias="X-Tenant-ID"),
+    tenant_id: str = Depends(get_tenant_id),
 ):
     """Derive an itemized product list from the receipt's stored OCR text."""
-    tenant_id = _parse_tenant_header(x_tenant_id)
     oid = _receipt_object_id(receipt_id)
 
     query = {"_id": oid, **_tenant_query_filter(tenant_id)}
@@ -202,12 +205,19 @@ async def itemize_receipt(
     if not existing:
         raise HTTPException(status_code=404, detail="Receipt not found")
 
-    items = find_line_items(existing.get("raw_text") or "")
+    items = find_line_items(existing.get("raw_text") or "", existing.get("total_amount"))
     document = await collection_receipts.find_one_and_update(
         query,
         {"$set": {"items": items, "updated_at": datetime.now(timezone.utc)}},
         return_document=ReturnDocument.AFTER,
     )
+
+    # Backfill the line_items collection so on-demand itemization of older receipts
+    # also feeds the item-level analytics. Idempotent: replaces this receipt's rows.
+    try:
+        await write_line_items_async(collection_line_items, document, items, tenant_id)
+    except Exception:
+        logger.exception("line_items backfill failed receipt_id=%s", receipt_id)
 
     document["id"] = str(document["_id"])
     if document.get("tenant_id") is None:
@@ -218,13 +228,17 @@ async def itemize_receipt(
 @router.delete("/{receipt_id}", status_code=204)
 async def delete_receipt(
     receipt_id: str,
-    x_tenant_id: Optional[str] = Header(default=None, alias="X-Tenant-ID"),
+    tenant_id: str = Depends(get_tenant_id),
 ):
-    tenant_id = _parse_tenant_header(x_tenant_id)
     oid = _receipt_object_id(receipt_id)
 
     query = {"_id": oid, **_tenant_query_filter(tenant_id)}
     result = await collection_receipts.delete_one(query)
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Receipt not found")
+    # Cascade: drop the receipt's line items so analytics don't count orphans.
+    try:
+        await collection_line_items.delete_many({"tenant_id": tenant_id, "receipt_id": oid})
+    except Exception:
+        logger.exception("line_items cleanup failed receipt_id=%s", receipt_id)
     return Response(status_code=204)

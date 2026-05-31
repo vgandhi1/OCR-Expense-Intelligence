@@ -21,6 +21,11 @@ if str(BACKEND_DIR) not in sys.path:
 _TMP_UPLOAD_DIR = tempfile.mkdtemp(prefix="extracta_test_uploads_")
 os.environ.setdefault("UPLOAD_ROOT", _TMP_UPLOAD_DIR)
 
+# Disable rate limiting for the suite so a shared in-memory limiter can't leak state
+# across tests. The limiter mechanism itself is covered in test_rate_limit.py.
+# (Our own toggle, distinct from slowapi's global RATELIMIT_ENABLED.)
+os.environ.setdefault("APP_RATELIMIT_ENABLED", "0")
+
 FIXTURE_DIR = BACKEND_DIR.parent / "test_fixtures"
 
 
@@ -33,18 +38,41 @@ def fake_collections(monkeypatch):
     db = client["expense_intelligence"]
     jobs = db["jobs"]
     receipts = db["receipts"]
+    line_items = db["line_items"]
+    tenants = db["tenants"]
+    vendors = db["vendors"]
 
     import database
     import routes.analytics as analytics_route
     import routes.receipts as receipts_route
+    import routes.vendors as vendors_route
 
     monkeypatch.setattr(database, "collection_jobs", jobs, raising=False)
     monkeypatch.setattr(database, "collection_receipts", receipts, raising=False)
+    monkeypatch.setattr(database, "collection_line_items", line_items, raising=False)
+    # auth.py and routes/admin.py resolve tenants via database.collection_tenants
+    # at call time, so patching it on the database module is sufficient.
+    monkeypatch.setattr(database, "collection_tenants", tenants, raising=False)
+    # line_items_writer's async path reads database.collection_vendors at call time.
+    monkeypatch.setattr(database, "collection_vendors", vendors, raising=False)
     monkeypatch.setattr(receipts_route, "collection_jobs", jobs, raising=False)
     monkeypatch.setattr(receipts_route, "collection_receipts", receipts, raising=False)
+    monkeypatch.setattr(
+        receipts_route, "collection_line_items", line_items, raising=False
+    )
     monkeypatch.setattr(analytics_route, "collection_receipts", receipts, raising=False)
+    monkeypatch.setattr(
+        analytics_route, "collection_line_items", line_items, raising=False
+    )
+    monkeypatch.setattr(vendors_route, "collection_vendors", vendors, raising=False)
 
-    return {"jobs": jobs, "receipts": receipts}
+    return {
+        "jobs": jobs,
+        "receipts": receipts,
+        "line_items": line_items,
+        "tenants": tenants,
+        "vendors": vendors,
+    }
 
 
 @pytest.fixture

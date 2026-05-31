@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import client from '../api/client';
-import { Loader2, Pencil, Trash2, Check, X, ChevronDown, ChevronRight, ListTree } from 'lucide-react';
+import { Loader2, Pencil, Trash2, Check, X, ChevronDown, ChevronRight, ListTree, FileSpreadsheet, FileDown, RefreshCw } from 'lucide-react';
+import { exportReceiptsCsv, exportReceiptsExcel } from '../utils/exporters';
 
 const CATEGORIES = [
     'Groceries', 'Dining', 'Transport', 'Shopping',
@@ -22,16 +23,28 @@ const toDateInput = (value) => {
 // The API serializes the Mongo id as `_id` (FastAPI by_alias); fall back to `id`.
 const receiptId = (receipt) => receipt._id || receipt.id;
 
-const ItemizedBill = ({ items }) => {
+const ItemizedBill = ({ items, onRegenerate, busy }) => {
     const sorted = [...items].sort((a, b) => (b.amount ?? 0) - (a.amount ?? 0));
     const max = sorted.length ? (sorted[0].amount ?? 0) : 0;
     const sum = sorted.reduce((acc, it) => acc + (it.amount ?? 0), 0);
 
     return (
         <div className="px-6 py-4 bg-gray-50">
-            <div className="text-xs uppercase tracking-wide text-gray-500 mb-2">
-                Itemized bill — {sorted.length} item{sorted.length === 1 ? '' : 's'} ·
-                most expensive first
+            <div className="flex items-center justify-between mb-2">
+                <div className="text-xs uppercase tracking-wide text-gray-500">
+                    Itemized bill — {sorted.length} item{sorted.length === 1 ? '' : 's'} ·
+                    most expensive first
+                </div>
+                {onRegenerate && (
+                    <button
+                        onClick={onRegenerate}
+                        disabled={busy}
+                        title="Re-detect items from the receipt text"
+                        className="inline-flex items-center gap-1.5 text-xs text-purple-600 hover:text-purple-800 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                        <RefreshCw size={13} className={busy ? 'animate-spin' : ''} /> Regenerate
+                    </button>
+                )}
             </div>
             <table className="w-full text-sm">
                 <tbody>
@@ -178,9 +191,36 @@ const ReceiptsList = ({ refreshTrigger, onChange }) => {
         return <div className="flex justify-center p-8"><Loader2 className="animate-spin text-gray-400" /></div>;
     }
 
+    const hasReceipts = receipts.length > 0;
+
     return (
         <div className="bg-white shadow rounded-lg overflow-hidden">
-            <h2 className="px-6 py-4 text-xl font-semibold border-b bg-gray-50 text-gray-700">Recent Receipts</h2>
+            <div className="px-6 py-4 border-b bg-gray-50 flex flex-wrap items-center justify-between gap-3">
+                <h2 className="text-xl font-semibold text-gray-700">
+                    Recent Receipts
+                    {hasReceipts && (
+                        <span className="ml-2 text-sm font-normal text-gray-400">({receipts.length})</span>
+                    )}
+                </h2>
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => exportReceiptsCsv(receipts)}
+                        disabled={!hasReceipts}
+                        title="Export as CSV"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border border-gray-300 text-gray-700 bg-white hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                        <FileDown size={16} /> CSV
+                    </button>
+                    <button
+                        onClick={() => exportReceiptsExcel(receipts)}
+                        disabled={!hasReceipts}
+                        title="Export as Excel"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border border-green-600 text-white bg-green-600 hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                        <FileSpreadsheet size={16} /> Excel
+                    </button>
+                </div>
+            </div>
             {error && <div className="px-6 py-2 text-sm text-red-600 bg-red-50 border-b">{error}</div>}
             {receipts.length === 0 ? (
                 <div className="p-8 text-center text-gray-500">No receipts found. Upload one to get started.</div>
@@ -312,7 +352,7 @@ const ReceiptsList = ({ refreshTrigger, onChange }) => {
                                         {isExpanded && hasItems && (
                                             <tr>
                                                 <td colSpan={6} className="p-0 border-b border-gray-200">
-                                                    <ItemizedBill items={items} />
+                                                    <ItemizedBill items={items} onRegenerate={() => itemize(id)} busy={isBusy} />
                                                 </td>
                                             </tr>
                                         )}

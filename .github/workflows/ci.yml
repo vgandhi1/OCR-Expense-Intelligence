@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs on the same ref to save minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Backend tests (py3.9)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.9
+        uses: actions/setup-python@v5
+        with:
+          # 3.9 matches the production runtime (backend/Dockerfile: python:3.9-slim).
+          python-version: "3.9"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install system libraries
+        # poppler-utils → pdf2image (PDF ingestion); libgl1/libglib2.0-0 → OpenCV runtime.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils libgl1 libglib2.0-0
+
+      - name: Install CPU-only PyTorch
+        # Match the Dockerfile: avoid pulling multi-GB CUDA wheels EasyOCR would otherwise grab.
+        run: pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run test suite
+        env:
+          # Tests stub MongoDB/Redis (mongomock/fakeredis); no live services needed.
+          APP_RATELIMIT_ENABLED: "0"
+        run: pytest -q
