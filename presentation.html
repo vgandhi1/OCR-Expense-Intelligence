@@ -261,10 +261,10 @@
         <span class="chip">Multi-tenant · API keys</span>
       </div>
       <div class="stat-row r">
-        <div class="stat"><div class="n amber">120</div><div class="l">Tests passing</div></div>
+        <div class="stat"><div class="n amber">128</div><div class="l">Tests passing</div></div>
         <div class="stat"><div class="n mint">8 / 10</div><div class="l">Priorities shipped</div></div>
-        <div class="stat"><div class="n sky">5</div><div class="l">Mongo collections</div></div>
-        <div class="stat"><div class="n">18+</div><div class="l">API endpoints</div></div>
+        <div class="stat"><div class="n sky">6</div><div class="l">Mongo collections</div></div>
+        <div class="stat"><div class="n">22+</div><div class="l">API endpoints</div></div>
       </div>
     </div>
   </section>
@@ -294,7 +294,8 @@
         <img src="dashboard.png" alt="OCR Expense Intelligence dashboard — stats, monthly spend, merchant and category pie charts, and the receipts table with CSV/Excel export" />
       </div>
       <p class="note r">Detected-spend stats, a monthly trend, <b>Top Merchants</b> and <b>Spending by Category</b>
-        pie charts, and a full-width receipts table with inline edit, itemized bills, and <b>CSV / Excel export</b>.</p>
+        pie charts, <b>budget-vs-actual progress bars</b>, and a full-width receipts table with inline edit,
+        itemized bills, a <b>Manual</b> / OCR source badge, and <b>CSV / Excel export</b>.</p>
     </div>
   </section>
 
@@ -304,7 +305,8 @@
       <div class="kicker r">How it's built</div>
       <h2 class="r">An <span class="em">async</span> pipeline, end to end.</h2>
       <p class="note r">The API authenticates, validates, stores and enqueues in milliseconds. A Celery worker does
-        the heavy lifting off the request path; the UI polls a job until it completes.</p>
+        the heavy lifting off the request path; the UI polls a job until it completes. Manual expenses and
+        budgets take a proactive path — written straight to MongoDB, no worker.</p>
 
       <div class="diagram r">
         <!-- Row 1: Client -->
@@ -312,7 +314,8 @@
           <div class="lane-label">Client</div>
           <div class="nodes">
             <div class="node client">Upload<br><small>JPG · PNG · PDF</small></div>
-            <div class="node client">Dashboard<br><small>analytics</small></div>
+            <div class="node client">Manual + budgets<br><small>proactive entry</small></div>
+            <div class="node client">Dashboard<br><small>analytics · budgets</small></div>
             <div class="node client">Receipts table<br><small>edit · export</small></div>
           </div>
         </div>
@@ -325,7 +328,7 @@
           <div class="nodes">
             <div class="node api">Auth + rate limit</div>
             <div class="node api">Validate + store</div>
-            <div class="node api">Routes<br><small>receipts · analytics · vendors · admin · health</small></div>
+            <div class="node api">Routes<br><small>receipts · expenses · analytics · vendors · admin · health</small></div>
           </div>
         </div>
 
@@ -358,6 +361,7 @@
             <div class="node db">line_items</div>
             <div class="node db">tenants</div>
             <div class="node db">vendors</div>
+            <div class="node db">budgets</div>
           </div>
         </div>
       </div>
@@ -391,6 +395,8 @@
         <div class="card r"><div class="ic">OCR</div><h3>AI extraction</h3><p>Merchant, date, total, currency &amp; confidence from JPG/PNG/PDF, aligning the TOTAL label to its price.</p></div>
         <div class="card r"><div class="ic">IMG</div><h3>Pre-processing</h3><p>OpenCV deskew / denoise / contrast lifts accuracy on real-world photos and scans.</p></div>
         <div class="card r"><div class="ic">ITM</div><h3>Itemized bills</h3><p>Line items fanned into their own collection, shown most-expensive-first.</p></div>
+        <div class="card r"><div class="ic">MAN</div><h3>Manual expenses</h3><p>Log cash / non-receipt spend straight from the UI — it skips OCR/Celery, lands in the same store, and carries an OCR / Manual source badge.</p></div>
+        <div class="card r"><div class="ic">BGT</div><h3>Budgets</h3><p>Per-category monthly limits with budget-vs-actual progress bars — green, amber, over-budget red — surfacing unbudgeted-spend leaks.</p></div>
         <div class="card r"><div class="ic">VEN</div><h3>Vendor normalization</h3><p>RapidFuzz collapses "WALMART #4821" / "Wal-Mart" into one canonical vendor; unknowns queued for review.</p></div>
         <div class="card r"><div class="ic">ANL</div><h3>Analytics</h3><p>Monthly-spend bar chart, plus Top-Merchant and Spending-by-Category pie charts, vendor and extraction-failure views.</p></div>
         <div class="card r"><div class="ic">CSV</div><h3>CSV / Excel export</h3><p>Export the receipts table to CSV or a real styled Excel file, straight from the browser — no dependency.</p></div>
@@ -445,7 +451,7 @@
       <div class="kicker r">Confidence to ship</div>
       <h2 class="r">Tested, contained, observable.</h2>
       <div class="qgrid">
-        <div class="q r"><div class="big">120</div><h4>Automated tests</h4><p>Unit + API + isolated mechanism tests, mongomock / fakeredis backed — no Docker needed. CI runs them on every push.</p></div>
+        <div class="q r"><div class="big">128</div><h4>Automated tests</h4><p>Unit + API + isolated mechanism tests, mongomock / fakeredis backed — no Docker needed. CI runs them on every push.</p></div>
         <div class="q r"><div class="big">5</div><h4>Tenant-isolated stores</h4><ul>
           <li><b>receipts</b> · parsed docs</li>
           <li><b>jobs</b> · async status</li>
