@@ -14,6 +14,7 @@ collection_jobs = database.jobs
 collection_line_items = database.line_items
 collection_tenants = database.tenants
 collection_vendors = database.vendors
+collection_budgets = database.budgets
 
 
 async def ensure_indexes() -> None:
@@ -25,6 +26,11 @@ async def ensure_indexes() -> None:
         await collection_jobs.create_index([("tenant_id", 1), ("status", 1)])
         await collection_receipts.create_index([("tenant_id", 1), ("created_at", -1)])
         await collection_receipts.create_index([("tenant_id", 1), ("needs_review", 1)])
+        # Budget-progress aggregation matches receipts by tenant + date + category;
+        # this compound index keeps Stage 1 an index scan as data grows.
+        await collection_receipts.create_index(
+            [("tenant_id", 1), ("date", 1), ("category", 1)]
+        )
         await collection_line_items.create_index([("tenant_id", 1), ("period", -1)])
         await collection_line_items.create_index(
             [("tenant_id", 1), ("vendor_id", 1), ("period", -1)]
@@ -44,5 +50,10 @@ async def ensure_indexes() -> None:
         # Vendor normalisation: alias fuzzy-match scan + review queue, both tenant-scoped.
         await collection_vendors.create_index([("tenant_id", 1), ("aliases", 1)])
         await collection_vendors.create_index([("tenant_id", 1), ("needs_review", 1)])
+        # One budget per (tenant, month, category); the unique index enforces the
+        # upsert key so duplicates can't accumulate.
+        await collection_budgets.create_index(
+            [("tenant_id", 1), ("month", 1), ("category", 1)], unique=True
+        )
     except Exception:
         logger.exception("Failed to create MongoDB indexes")

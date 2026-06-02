@@ -17,7 +17,7 @@ spend, and visualize it on a dashboard.
 ![Celery](https://img.shields.io/badge/Celery-Redis-37814A?logo=celery&logoColor=white)
 ![EasyOCR](https://img.shields.io/badge/OCR-EasyOCR%20%2B%20PyTorch-EE4C2C?logo=pytorch&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-120%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-128%20passing-brightgreen)
 ![License](https://img.shields.io/badge/License-MIT-blue)
 
 <br/>
@@ -65,6 +65,8 @@ spend, and visualize it on a dashboard.
 | 🖼️ | **Image pre-processing** | Deskew, denoise, and contrast-normalize each page with OpenCV before OCR to lift accuracy on photos and scans. |
 | 📄 | **PDF support** | Multi-page PDFs are rasterized (poppler/`pdf2image`); the first page is OCR'd and the page count is recorded. |
 | 🧾 | **Itemized bills** | Extracts line items (product + price) into a dedicated `line_items` collection and shows them **most-expensive-first**. |
+| ✍️ | **Manual expenses** | Log cash/non-receipt spend straight from the UI — it skips OCR/Celery and lands in the same store, tagged with an **OCR / Manual** source badge, so every chart and export includes it. |
+| 🎯 | **Budgets** | Set per-category monthly limits and track **budget vs. actual** with color-coded progress bars (green / amber / over-budget red), including unbudgeted-spend leaks. |
 | 🏷️ | **Auto-categorization** | Sorts spend into Groceries, Dining, Transport, Shopping, Utilities, Entertainment, Health, or Uncategorized. |
 | 🏬 | **Vendor normalization** | Fuzzy-matches messy merchant strings ("WALMART #4821", "Wal-Mart Supercenter") to one canonical vendor (RapidFuzz) so vendor analytics aren't fragmented; unknowns are queued for review. |
 | ✏️ | **Edit & delete** | Fix any field (merchant, total, date, category) inline; deletes cascade to the receipt's line items. |
@@ -235,9 +237,13 @@ Base URL: `http://localhost:8000`. **Tenant resolution** per request: `X-API-Key
 | `PATCH` | `/receipts/{id}` | Update `merchant_name`, `total_amount`, `date`, `category` |
 | `DELETE` | `/receipts/{id}` | Delete a receipt + its line items (`204`) |
 | `POST` | `/receipts/{id}/itemize` | Derive line items from the receipt's OCR text |
+| `POST` | `/expenses/manual` | Create a manual (non-OCR) expense → `{ id, status, source }` (`201`) |
+| `POST` | `/expenses/budgets` | Upsert a category spending limit for a month (`YYYY-MM`) |
+| `GET` | `/expenses/budgets/{month}` | List the tenant's budgets for a month |
 | `GET` | `/analytics/monthly` | Spend grouped by month |
 | `GET` | `/analytics/merchant` | Top 5 merchants by spend |
 | `GET` | `/analytics/category` | Total spend grouped by category (powers the category pie) |
+| `GET` | `/analytics/budget-progress/{month}` | Budget vs. actual spend per category for a month |
 | `GET` | `/analytics/vendors` | Spend grouped by canonical vendor (last N days) |
 | `GET` | `/analytics/categories` | Category spend by month |
 | `GET` | `/analytics/extraction-failures` | Receipts/items flagged `needs_review` |
@@ -348,7 +354,7 @@ so a `.env` is optional). See [`.env.example`](.env.example).
 ```
 .
 ├── backend/
-│   ├── routes/             # API endpoints (receipts, analytics, admin, vendors)
+│   ├── routes/             # API endpoints (receipts, expenses, analytics, admin, vendors)
 │   ├── tests/              # pytest suite (mongomock-backed, no Docker needed)
 │   ├── main.py             # FastAPI app + CORS + lifespan + health/error/rate-limit wiring
 │   ├── auth.py             # API-key hashing + get_tenant_id dependency
@@ -368,7 +374,8 @@ so a `.env` is optional). See [`.env.example`](.env.example).
 │   └── models.py           # Pydantic models
 ├── frontend/
 │   └── src/
-│       ├── components/     # Upload, ReceiptsList (edit/delete/itemize/export), Dashboard
+│       ├── components/     # Upload, ReceiptsList, Dashboard, ManualExpenseModal, BudgetPanel
+│       ├── constants.js    # Shared category list + current-month helper
 │       ├── utils/exporters.js # CSV + Excel (SpreadsheetML) export helpers
 │       └── api/client.js   # Axios client (reads VITE_API_URL)
 ├── test_fixtures/
@@ -392,6 +399,7 @@ so a `.env` is optional). See [`.env.example`](.env.example).
 |-----|---------------|
 | 🧭 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Target vs. current architecture, data model, and request flow |
 | 🛠️ [`docs/CODEBASE_IMPROVEMENTS.md`](docs/CODEBASE_IMPROVEMENTS.md) | The prioritized improvement playbook (Priorities 1–10) with code |
+| 🎯 [`docs/Expense-Tracker-feature.md`](docs/Expense-Tracker-feature.md) | As-built spec for manual expenses + budgets (models, API, UI, tests) |
 | 📗 [`docs/PRODUCTION_DEPLOY.md`](docs/PRODUCTION_DEPLOY.md) | End-to-end production deploy (hosting, CI/CD, domain, SSL, monitoring, cost) |
 
 ---

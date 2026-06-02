@@ -1,12 +1,23 @@
 import React, { useEffect, useState } from 'react';
 import client from '../api/client';
-import { Loader2, Pencil, Trash2, Check, X, ChevronDown, ChevronRight, ListTree, FileSpreadsheet, FileDown, RefreshCw } from 'lucide-react';
+import { Loader2, Pencil, Trash2, Check, X, ChevronDown, ChevronRight, ListTree, FileSpreadsheet, FileDown, RefreshCw, Bot, PenLine } from 'lucide-react';
 import { exportReceiptsCsv, exportReceiptsExcel } from '../utils/exporters';
+import { CATEGORIES } from '../constants';
 
-const CATEGORIES = [
-    'Groceries', 'Dining', 'Transport', 'Shopping',
-    'Utilities', 'Entertainment', 'Health', 'Uncategorized',
-];
+// OCR receipts have no `source` field; treat the absence as OCR.
+const SourceBadge = ({ source }) => {
+    const manual = source === 'manual';
+    return (
+        <span
+            className={`px-2 inline-flex items-center gap-1 text-xs leading-5 font-medium rounded-full ${manual ? 'bg-purple-100 text-purple-800' : 'bg-sky-100 text-sky-800'
+                }`}
+            title={manual ? 'Entered manually' : 'Extracted by OCR'}
+        >
+            {manual ? <PenLine size={12} /> : <Bot size={12} />}
+            {manual ? 'Manual' : 'OCR'}
+        </span>
+    );
+};
 
 const categoryClass = (category) =>
     category === 'Groceries' ? 'bg-green-100 text-green-800' :
@@ -232,6 +243,7 @@ const ReceiptsList = ({ refreshTrigger, onChange }) => {
                                 <th className="px-6 py-3 w-6"></th>
                                 <th className="px-6 py-3">Date</th>
                                 <th className="px-6 py-3">Merchant</th>
+                                <th className="px-6 py-3">Source</th>
                                 <th className="px-6 py-3">Category</th>
                                 <th className="px-6 py-3 text-right">Total</th>
                                 <th className="px-6 py-3 text-right">Actions</th>
@@ -283,6 +295,9 @@ const ReceiptsList = ({ refreshTrigger, onChange }) => {
                                                 ) : (
                                                     receipt.merchant_name || 'Unknown Merchant'
                                                 )}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                <SourceBadge source={receipt.source} />
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                                 {isEditing ? (
@@ -351,7 +366,7 @@ const ReceiptsList = ({ refreshTrigger, onChange }) => {
                                         </tr>
                                         {isExpanded && hasItems && (
                                             <tr>
-                                                <td colSpan={6} className="p-0 border-b border-gray-200">
+                                                <td colSpan={7} className="p-0 border-b border-gray-200">
                                                     <ItemizedBill items={items} onRegenerate={() => itemize(id)} busy={isBusy} />
                                                 </td>
                                             </tr>

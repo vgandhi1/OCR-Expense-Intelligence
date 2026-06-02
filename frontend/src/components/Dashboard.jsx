@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import client from '../api/client';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { Loader2, DollarSign, TrendingUp } from 'lucide-react';
+import BudgetPanel from './BudgetPanel';
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
 // Distinct palette for category slices so they read clearly against the merchant pie.
@@ -148,6 +149,9 @@ const Dashboard = ({ refreshTrigger }) => {
                     </div>
                 </div>
             </div>
+
+            {/* Budget vs. actual progress for the current month */}
+            <BudgetPanel refreshTrigger={refreshTrigger} />
         </div>
     );
 };

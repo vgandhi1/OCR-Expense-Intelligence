@@ -12,7 +12,7 @@ import health
 from database import ensure_indexes
 from errors import ExtractaError, extracta_error_handler, unhandled_error_handler
 from rate_limit import limiter, rate_limit_exceeded_handler
-from routes import admin, analytics, receipts, vendors
+from routes import admin, analytics, expenses, receipts, vendors
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -55,6 +55,7 @@ app.add_middleware(
 
 app.include_router(receipts.router, prefix="/receipts", tags=["receipts"])
 app.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
+app.include_router(expenses.router, prefix="/expenses", tags=["expense-tracker"])
 app.include_router(admin.router, prefix="/admin", tags=["admin"])
 app.include_router(vendors.router, prefix="/vendors", tags=["vendors"])
 

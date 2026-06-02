@@ -41,9 +41,11 @@ def fake_collections(monkeypatch):
     line_items = db["line_items"]
     tenants = db["tenants"]
     vendors = db["vendors"]
+    budgets = db["budgets"]
 
     import database
     import routes.analytics as analytics_route
+    import routes.expenses as expenses_route
     import routes.receipts as receipts_route
     import routes.vendors as vendors_route
 
@@ -55,6 +57,7 @@ def fake_collections(monkeypatch):
     monkeypatch.setattr(database, "collection_tenants", tenants, raising=False)
     # line_items_writer's async path reads database.collection_vendors at call time.
     monkeypatch.setattr(database, "collection_vendors", vendors, raising=False)
+    monkeypatch.setattr(database, "collection_budgets", budgets, raising=False)
     monkeypatch.setattr(receipts_route, "collection_jobs", jobs, raising=False)
     monkeypatch.setattr(receipts_route, "collection_receipts", receipts, raising=False)
     monkeypatch.setattr(
@@ -64,6 +67,9 @@ def fake_collections(monkeypatch):
     monkeypatch.setattr(
         analytics_route, "collection_line_items", line_items, raising=False
     )
+    monkeypatch.setattr(analytics_route, "collection_budgets", budgets, raising=False)
+    monkeypatch.setattr(expenses_route, "collection_receipts", receipts, raising=False)
+    monkeypatch.setattr(expenses_route, "collection_budgets", budgets, raising=False)
     monkeypatch.setattr(vendors_route, "collection_vendors", vendors, raising=False)
 
     return {
@@ -72,6 +78,7 @@ def fake_collections(monkeypatch):
         "line_items": line_items,
         "tenants": tenants,
         "vendors": vendors,
+        "budgets": budgets,
     }
 
 

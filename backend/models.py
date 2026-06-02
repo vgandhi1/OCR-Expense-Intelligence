@@ -1,9 +1,20 @@
+from enum import Enum
 from pydantic import BaseModel, Field, BeforeValidator
 from typing import List, Optional, Annotated
 from datetime import datetime
 
 # Helper for ObjectId handling in Pydantic v2
 PyObjectId = Annotated[str, BeforeValidator(str)]
+
+# Format for a budget period / month bucket, e.g. "2026-06".
+MONTH_PATTERN = r"^\d{4}-(0[1-9]|1[0-2])$"
+
+
+class ExpenseSource(str, Enum):
+    """Where an expense record originated."""
+
+    OCR = "ocr"
+    MANUAL = "manual"
 
 
 class Item(BaseModel):
@@ -36,6 +47,10 @@ class Receipt(ReceiptBase):
     currency: Optional[str] = "USD"
     confidence: Optional[float] = None
     needs_review: bool = False
+    # OCR-extracted receipts have no `source` field; default to OCR so older
+    # documents serialize correctly. Manual entries set this to "manual".
+    source: ExpenseSource = ExpenseSource.OCR
+    notes: Optional[str] = None
 
     class Config:
         populate_by_name = True
@@ -49,6 +64,26 @@ class ReceiptUpdate(BaseModel):
     total_amount: Optional[float] = Field(default=None, ge=0)
     date: Optional[datetime] = None
     category: Optional[str] = Field(default=None, max_length=60)
+
+
+class ManualExpenseCreate(BaseModel):
+    """A user-entered expense. Bypasses the OCR/Celery pipeline and is written
+    straight into the receipts collection with ``source = manual``."""
+
+    merchant_name: str = Field(min_length=1, max_length=200)
+    total_amount: float = Field(ge=0)
+    date: datetime
+    category: str = Field(min_length=1, max_length=60)
+    notes: Optional[str] = Field(default=None, max_length=1000)
+    currency: Optional[str] = Field(default="USD", max_length=8)
+
+
+class BudgetUpsert(BaseModel):
+    """A monthly spending target for a single category (upserted per tenant)."""
+
+    category: str = Field(min_length=1, max_length=60)
+    limit_amount: float = Field(ge=0)
+    month: str = Field(pattern=MONTH_PATTERN)
 
 
 class JobEnqueueResponse(BaseModel):

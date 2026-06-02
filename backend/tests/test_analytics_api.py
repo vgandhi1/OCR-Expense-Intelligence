@@ -149,6 +149,50 @@ async def test_categories_grouped_by_month(client, fake_collections):
     assert all(r["month"] for r in resp.json())
 
 
+# --- budget progress ------------------------------------------------------
+
+
+async def test_budget_progress_merges_actual_and_limits(client, fake_collections):
+    await fake_collections["receipts"].insert_many(
+        [
+            {"tenant_id": "acme", "category": "Groceries", "total_amount": 420.50,
+             "date": datetime(2026, 6, 5, tzinfo=timezone.utc)},
+            {"tenant_id": "acme", "category": "Dining", "total_amount": 185.0,
+             "date": datetime(2026, 6, 10, tzinfo=timezone.utc)},
+            # Outside the month → must be excluded.
+            {"tenant_id": "acme", "category": "Groceries", "total_amount": 99.0,
+             "date": datetime(2026, 5, 30, tzinfo=timezone.utc)},
+            # Different tenant → must never leak.
+            {"tenant_id": "other", "category": "Groceries", "total_amount": 999.0,
+             "date": datetime(2026, 6, 6, tzinfo=timezone.utc)},
+        ]
+    )
+    await fake_collections["budgets"].insert_many(
+        [
+            {"tenant_id": "acme", "month": "2026-06", "category": "Groceries", "limit_amount": 500.0},
+            {"tenant_id": "acme", "month": "2026-06", "category": "Dining", "limit_amount": 150.0},
+            # Budget with no spend yet → should still appear with actual 0.
+            {"tenant_id": "acme", "month": "2026-06", "category": "Utilities", "limit_amount": 80.0},
+        ]
+    )
+    resp = await client.get("/analytics/budget-progress/2026-06", headers={"X-Tenant-ID": "acme"})
+    assert resp.status_code == 200
+    rows = {r["category"]: r for r in resp.json()}
+
+    assert rows["Groceries"]["actual"] == pytest.approx(420.50)  # May entry excluded
+    assert rows["Groceries"]["limit"] == pytest.approx(500.0)
+    assert rows["Dining"]["actual"] == pytest.approx(185.0)
+    assert rows["Dining"]["limit"] == pytest.approx(150.0)  # over budget
+    assert rows["Utilities"]["actual"] == pytest.approx(0.0)  # budget, no spend
+    assert rows["Utilities"]["limit"] == pytest.approx(80.0)
+    assert 999.0 not in [r["actual"] for r in rows.values()]  # tenant isolation
+
+
+async def test_budget_progress_rejects_bad_month(client, fake_collections):
+    resp = await client.get("/analytics/budget-progress/2026-13", headers={"X-Tenant-ID": "acme"})
+    assert resp.status_code == 400
+
+
 async def test_extraction_failures_lists_incomplete_receipts(client, fake_collections):
     await fake_collections["receipts"].insert_many(
         [

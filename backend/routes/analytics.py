@@ -1,7 +1,8 @@
+import calendar
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 import sys
 import os
@@ -9,7 +10,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from auth import get_tenant_id
-from database import collection_receipts, collection_line_items
+from database import collection_receipts, collection_line_items, collection_budgets
 
 router = APIRouter()
 
@@ -170,6 +171,60 @@ async def get_category_by_month(
         }
         for r in results
     ]
+
+
+def _month_bounds(month: str):
+    """Parse ``YYYY-MM`` into (start, end) UTC datetimes, or raise 400."""
+    try:
+        year_str, month_str = month.split("-")
+        year, month_int = int(year_str), int(month_str)
+        last_day = calendar.monthrange(year, month_int)[1]
+    except (ValueError, IndexError):
+        raise HTTPException(status_code=400, detail="Invalid month; expected YYYY-MM")
+    start = datetime(year, month_int, 1, 0, 0, 0, tzinfo=timezone.utc)
+    end = datetime(year, month_int, last_day, 23, 59, 59, tzinfo=timezone.utc)
+    return start, end
+
+
+@router.get("/budget-progress/{month}")
+async def get_budget_progress(
+    month: str,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Budget vs. actual spend per category for a month (``YYYY-MM``).
+
+    Unions categories from both sides so the UI surfaces (a) budgets with no
+    spend yet and (b) spend in categories with no budget ("unbudgeted leaks").
+    Implemented as actual-spend aggregation + a budgets fetch merged in Python
+    (instead of a ``$lookup`` sub-pipeline) so it runs on the in-memory test DB.
+    """
+    start, end = _month_bounds(month)
+
+    match = dict(_tenant_match_stage(tenant_id)["$match"])
+    match["date"] = {"$gte": start, "$lte": end}
+    spend_pipeline: List[Dict[str, Any]] = [
+        {"$match": match},
+        {
+            "$group": {
+                "_id": {"$ifNull": ["$category", "Uncategorized"]},
+                "actual_amount": {"$sum": "$total_amount"},
+            }
+        },
+    ]
+    spend_rows = await collection_receipts.aggregate(spend_pipeline).to_list(length=500)
+    actual = {r["_id"] or "Uncategorized": round(r["actual_amount"] or 0, 2) for r in spend_rows}
+
+    budgets = await collection_budgets.find(
+        {"tenant_id": tenant_id, "month": month}
+    ).to_list(length=500)
+    limits = {b["category"]: round(b.get("limit_amount", 0) or 0, 2) for b in budgets}
+
+    rows = [
+        {"category": category, "actual": actual.get(category, 0.0), "limit": limits.get(category, 0.0)}
+        for category in (set(actual) | set(limits))
+    ]
+    rows.sort(key=lambda r: r["actual"], reverse=True)
+    return rows
 
 
 @router.get("/extraction-failures")
